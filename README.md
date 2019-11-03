@@ -13,6 +13,7 @@ Note also that the examples have successfully worked with other OIDC server impl
 - session
 - session management
 - session change detection
+- end_session
 - cookies
 - session_state
 - hash
@@ -370,16 +371,11 @@ I've tested also that it works with:
 - a different ACR value (it will force a new Session)
 - a second client with "prompt" login and a different user
 
-# Suggestions
-
-## Tests
-
-You should add unit tests and integration tests to make sure that there won't be any regression related to this bug report, since the consequences are pretty disastrous, with the flood of network requests hitting the Gluu server in a loop.
-
-## end_session without active session
+# Bug 4 - end_session without active session
 
 When using the allowPostLogoutRedirectWithoutValidation option, if the session was already terminated prior to calling end_session, the logout redirect will have an error parameter, which is not really helpful and is pretty ugly (it contains a very long phrase).
-Also, it might cause javascript code to fail if they check this parameter.
+
+Also, it might cause javascript code to fail if they check this parameter, such as the oidc-client library. See https://github.com/IdentityModel/oidc-client-js/blob/dev/src/OidcClient.js#L181-L183
 
 So, I would suggest to simply ignore the error, since we can't really act upon it.
 
@@ -402,6 +398,11 @@ See Server/src/main/java/org/xdi/oxauth/session/ws/rs/EndSessionRestWebServiceIm
     }
 ```
 
+
+# Suggestions
+
+You should add unit tests and integration tests to make sure that there won't be any regression related to this bug report, since the consequences are pretty disastrous, with the flood of network requests hitting the Gluu server in a loop.
+
 # Questions
 
 ## Do we really need the session_state cookie?
@@ -409,3 +410,31 @@ See Server/src/main/java/org/xdi/oxauth/session/ws/rs/EndSessionRestWebServiceIm
 I have the feeling that it's not used and that it shouldn't be used since it would contain only one of the generated session_state values.
 
 If we keep it, shouldn't we at least remove its HttpOnly flag?
+
+## Do we need the rp_origin_id cookie?
+
+This cookie seems to be only used in file Server/src/main/java/org/xdi/oxauth/service/ErrorHandlerService.java:
+
+```
+    private void handleRemoteError(String facesMessageId, IErrorType errorType, String hint) {
+        String redirectUri = sessionIdService.getRpOriginIdCookie();
+        
+        if (StringHelper.isEmpty(redirectUri)) {
+            Log.error("Failed to get redirect_uri from cookie");
+            handleLocalError(facesMessageId);
+            return;
+        }
+        
+        RedirectUri redirectUriResponse = new RedirectUri(redirectUri, null, null);
+        redirectUriResponse.parseQueryString(errorResponseFactory.getErrorAsQueryString(
+                errorType, null));
+        if (StringHelper.isNotEmpty(hint)) {
+            redirectUriResponse.addResponseParameter("hint", "Create authorization request to start new authentication session.");
+        }
+        facesService.redirectToExternalURL(redirectUriResponse.toString());
+    }
+```
+
+Couldn't we retrieve the redirectUri from the session attributes instead of relying on the cookie?
+
+
